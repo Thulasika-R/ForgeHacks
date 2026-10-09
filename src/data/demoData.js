@@ -354,3 +354,58 @@ export function analyzeInvoiceDemo(formData) {
     ],
   };
 }
+
+/**
+ * Demo analysis logic for uploaded invoice images.
+ *
+ * TEMPORARY: Determines risk based on the filename for demo purposes.
+ *
+ * FUTURE INTEGRATION — replace this function with an API call:
+ *   POST /api/analyze-invoice  (multipart/form-data with invoice image)
+ *
+ *   The backend pipeline will perform:
+ *     Invoice Image
+ *       → OCR (extract text from image)
+ *       → Extract Invoice Fields (amount, GSTIN, date, items, etc.)
+ *       → Preprocessing
+ *       → Historical Shop Behaviour lookup
+ *       → ML Anomaly Detection
+ *       → Risk Result
+ *
+ * @param {File} file - The uploaded invoice image file
+ * @returns {object} Analysis result matching the RiskResult component's expected shape
+ */
+export function analyzeInvoiceImageDemo(file) {
+  const nameLower = file.name.toLowerCase();
+  const highRiskKeywords = ['high', 'fraud', 'risk', 'anomaly'];
+  const isAnomalous = highRiskKeywords.some((kw) => nameLower.includes(kw));
+
+  if (isAnomalous) {
+    return {
+      risk: 'High',
+      label: 'HIGH ANOMALY RISK',
+      anomalyScore: 0.89,
+      historicalAvg: 132000,
+      currentAmount: 680000,
+      message: 'Potential anomaly detected. Further verification is recommended.',
+      indicators: [
+        { type: 'warning', text: 'Transaction value differs significantly from historical behaviour' },
+        { type: 'warning', text: 'Unusual transaction pattern' },
+        { type: 'warning', text: 'Requires manual verification' },
+      ],
+    };
+  }
+
+  return {
+    risk: 'Low',
+    label: 'LOW ANOMALY RISK',
+    anomalyScore: 0.18,
+    historicalAvg: 132000,
+    currentAmount: 125000,
+    message: 'Transaction appears consistent with the historical behaviour.',
+    indicators: [
+      { type: 'success', text: 'Invoice value within normal range' },
+      { type: 'success', text: 'Transaction pattern appears consistent' },
+    ],
+  };
+}
