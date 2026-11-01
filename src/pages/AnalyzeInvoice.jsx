@@ -2,6 +2,7 @@ import { useState } from 'react';
 import InvoiceForm from '../components/InvoiceForm';
 import InvoiceUploader from '../components/InvoiceUploader';
 import RiskResult from '../components/RiskResult';
+import BatchAnalysis from '../components/BatchAnalysis';
 import { analyzeInvoiceImageDemo } from '../data/demoData';
 
 /**
@@ -154,7 +155,7 @@ export default function AnalyzeInvoice() {
   }
 
   // ---------------------------------------------------------------------------
-  // Default — tab toggle between Upload and Manual Form
+  // Default — tab toggle between Upload, Manual Form, and CSV Batch
   // ---------------------------------------------------------------------------
   return (
     <div>
@@ -195,12 +196,29 @@ export default function AnalyzeInvoice() {
           </svg>
           Manual Entry
         </button>
+        <button
+          className={`analyze-tab ${activeTab === 'batch' ? 'active' : ''}`}
+          onClick={() => setActiveTab('batch')}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/>
+            <line x1="8" y1="17" x2="16" y2="17"/>
+            <line x1="8" y1="9" x2="10" y2="9"/>
+          </svg>
+          CSV Batch
+        </button>
       </div>
 
-      {activeTab === 'upload' ? (
+      {activeTab === 'upload' && (
         <InvoiceUploader onAnalyze={handleImageAnalyze} isAnalyzing={isAnalyzing} />
-      ) : (
+      )}
+      {activeTab === 'manual' && (
         <InvoiceForm onAnalyze={handleFormAnalyze} />
+      )}
+      {activeTab === 'batch' && (
+        <BatchAnalysis />
       )}
     </div>
   );

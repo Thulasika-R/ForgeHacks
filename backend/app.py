@@ -2,10 +2,11 @@
 app.py  –  GSTGuard Flask API
 ==============================
 
-Provides two endpoints:
+Provides three endpoints:
 
-  GET  /api/health   → Service health check
-  POST /api/analyze  → Analyse a single GST invoice for anomalies
+  GET  /api/health          → Service health check
+  POST /api/analyze         → Analyse a single GST invoice for anomalies
+  POST /api/analyze-batch   → Analyse multiple GST invoices from a CSV payload
 
 The Isolation Forest model and StandardScaler are loaded at startup from
 the ``models/`` directory.  If they are missing the server will refuse to
@@ -271,6 +272,130 @@ def analyze():
     except Exception:
         traceback.print_exc()
         return jsonify({"error": "An internal error occurred during analysis."}), 500
+
+
+@app.route("/api/analyze-batch", methods=["POST"])
+def analyze_batch():
+    """
+    Analyse a batch of GST invoices supplied as a JSON array.
+
+    Expected JSON body:
+    [
+        {
+            "invoiceNumber": "INV-1025",
+            "shop":          "ABC Traders",
+            "gstin":         "33AABCT1234A1ZA",
+            "amount":        125000,
+            "quantity":      10,
+            "gstRate":       18,
+            "invoiceDate":   "2026-10-09"
+        },
+        ...
+    ]
+
+    Returns:
+    {
+        "total":   10,
+        "high":    2,
+        "low":     8,
+        "results": [ { ...same shape as /api/analyze... , "invoiceNumber": "...", "shop": "...", "row": 1 }, ... ]
+    }
+    """
+    import pandas as pd
+
+    try:
+        rows = request.get_json(force=True, silent=True)
+        if not isinstance(rows, list) or len(rows) == 0:
+            return jsonify({"error": "Request body must be a non-empty JSON array."}), 400
+        if len(rows) > 500:
+            return jsonify({"error": "Batch size exceeds the 500-row limit."}), 400
+
+        results = []
+        high_count = 0
+        low_count = 0
+
+        for idx, data in enumerate(rows):
+            row_num = idx + 1
+            try:
+                amount   = _parse_positive_float(data.get("amount"),   "amount")
+                quantity = _parse_positive_float(data.get("quantity"),  "quantity")
+                gst_rate_raw = data.get("gstRate", data.get("gst_rate"))
+                gst_rate = _parse_positive_float(gst_rate_raw, "gstRate")
+
+                gst_amount = amount * (gst_rate / 100.0)
+                item_count = quantity
+
+                shop_name = str(data.get("shop", "")).strip().lower()
+                hist_avg  = HISTORICAL_AVERAGES.get(shop_name, DEFAULT_HIST_AVG)
+                ratio     = amount / hist_avg if hist_avg > 0 else 1.0
+
+                features = pd.DataFrame([[
+                    amount, gst_amount, item_count, hist_avg, ratio,
+                ]], columns=FEATURE_NAMES)
+
+                features_scaled = scaler.transform(features)
+                prediction  = model.predict(features_scaled)[0]
+                raw_score   = model.decision_function(features_scaled)[0]
+                anomaly_score = round(float(np.clip(-raw_score, 0.0, 1.0)), 2)
+
+                is_anomalous = prediction == -1
+                risk  = "High" if is_anomalous else "Low"
+                label = "HIGH ANOMALY RISK" if is_anomalous else "LOW ANOMALY RISK"
+
+                if is_anomalous:
+                    high_count += 1
+                    message = (
+                        "Potential anomaly detected. This invoice deviates from "
+                        "expected patterns and may warrant further verification."
+                    )
+                else:
+                    low_count += 1
+                    message = "Transaction is within the observed historical range."
+
+                indicators = _build_indicators(risk, ratio, amount, hist_avg)
+
+                results.append({
+                    "row":           row_num,
+                    "invoiceNumber": data.get("invoiceNumber", f"ROW-{row_num}"),
+                    "shop":          data.get("shop", ""),
+                    "gstin":         data.get("gstin", ""),
+                    "invoiceDate":   data.get("invoiceDate", ""),
+                    "risk":          risk,
+                    "label":         label,
+                    "anomalyScore":  anomaly_score,
+                    "historicalAvg": round(hist_avg, 2),
+                    "currentAmount": round(amount, 2),
+                    "message":       message,
+                    "indicators":    indicators,
+                    "error":         None,
+                })
+
+            except (ValueError, Exception) as row_err:
+                results.append({
+                    "row":           row_num,
+                    "invoiceNumber": data.get("invoiceNumber", f"ROW-{row_num}"),
+                    "shop":          data.get("shop", ""),
+                    "risk":          "Error",
+                    "label":         "PARSE ERROR",
+                    "anomalyScore":  None,
+                    "error":         str(row_err),
+                })
+
+        return jsonify({
+            "total":   len(rows),
+            "high":    high_count,
+            "low":     low_count,
+            "results": results,
+            "disclaimer": (
+                "This is a prototype prediction based on synthetic training data. "
+                "It should not be treated as a confirmed fraud determination. "
+                "Always verify flagged invoices manually."
+            ),
+        })
+
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"error": "An internal error occurred during batch analysis."}), 500
 
 
 # ---------------------------------------------------------------------------
